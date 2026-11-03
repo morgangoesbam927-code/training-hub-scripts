@@ -11,6 +11,8 @@ const zones = E.zoneText();
 const w = (n, o) => fs.writeFileSync(path.join(out, n), JSON.stringify(o));
 const metaPmc = rj(path.join(dir, "db/meta/pmc.json")) || {};
 const metaActs = rj(path.join(dir, "db/meta/acts.json")) || { list: [] };
+// Ride power (normalized power, seconds, FTP that day) cached by the hub page; used for bike load
+const power = (rj(path.join(dir, "db/meta/power.json")) || {}).rides || null;
 const fresh = rj(path.join(dir, "new.json")) || [];
 const seen = new Set(fresh.map(a => String(a.id)));
 // --since START: Strava was re-read from START, so saved activities from START on are replaced (ones deleted in Strava drop out)
@@ -20,7 +22,7 @@ const y = E.addDays(today, -1);
 
 function pmcThrough(end) {
   if (!metaPmc.asOf) return null;
-  const loads = E.dailyLoads(acts);
+  const loads = E.dailyLoads(acts, power);
   const hist = metaPmc.history || []; const anchorDate = E.addDays(metaPmc.asOf, -14);
   const anchor = hist.find(h => h.date === anchorDate);
   const seed = anchor ? { asOf: anchorDate, ctl: anchor.ctl, atl: anchor.atl } : { asOf: metaPmc.asOf, ctl: metaPmc.ctl, atl: metaPmc.atl };

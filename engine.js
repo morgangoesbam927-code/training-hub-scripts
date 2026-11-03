@@ -125,20 +125,40 @@
     return out;
   };
 
-  // ---------- Fitness / Fatigue / Form (TrainingPeaks PMC math on Strava relative effort) ----------
+  // ---------- Fitness / Fatigue / Form (TrainingPeaks PMC math on Strava relative effort; bike power when available) ----------
   // Sessions recorded without heart rate have no relative effort. Estimate their load from your own
   // median effort per minute for that sport (falls back to conservative defaults until 3 sessions exist).
   const EST_DEFAULT = { strength: 0.4, swim: 0.8, row: 0.9, run: 1, bike: 0.8, other: 0.5 };
-  E.withLoadEstimates = function (acts) {
-    const rate = {};
+  // Rides with power: power-based load (hours x IF^2 x 100, from normalized power and the FTP in effect that day),
+  // converted to the relative-effort scale with your own median RE-per-power-load ratio from rides that have both.
+  // Needs 5 such rides; until then rides keep relative effort. Runs and swims never use power.
+  // pw = { <activity id>: { np, sec, ftp } } (meta/power rides).
+  E.tss = p => p && p.np > 0 && p.sec > 0 && p.ftp > 0 ? p.sec / 3600 * (p.np / p.ftp) ** 2 * 100 : 0;
+  // Normalized power from a watts + time stream: 30 s rolling average, 4th-power mean
+  E.np = function (w, t) {
+    if (!w || !t || w.length < 10 || !w.some(x => x > 0)) return null;
+    const r = []; let j = 0, s = 0;
+    for (let i = 0; i < w.length; i++) { s += w[i] || 0; while (t[i] - t[j] >= 30) { s -= w[j] || 0; j++; } if (t[i] - t[0] >= 30) r.push(s / (i - j + 1)); }
+    return r.length ? Math.round(Math.pow(r.reduce((a, x) => a + x ** 4, 0) / r.length, 0.25)) : null;
+  };
+  E.powerScale = function (acts, pw) {
+    if (!pw) return null; const pairs = [];
+    for (const a of acts) { const t = E.sportOf(a.type) === "bike" ? E.tss(pw[String(a.id)]) : 0; if (t >= 10 && a.re > 0) pairs.push(a.re / t); }
+    return pairs.length >= 5 ? median(pairs) : null;
+  };
+  E.withLoadEstimates = function (acts, pw) {
+    const rate = {}, k = E.powerScale(acts, pw);
     for (const a of acts) if (a.re > 0 && a.min >= 5) (rate[E.sportOf(a.type)] = rate[E.sportOf(a.type)] || []).push(a.re / a.min);
     return acts.map(a => {
+      const t = k && E.sportOf(a.type) === "bike" ? E.tss(pw[String(a.id)]) : 0;
+      if (t > 0) return { ...a, pwLoad: Math.round(k * t) };
       if (a.re > 0 || !(a.min > 0)) return a;
       const sp = E.sportOf(a.type), r = rate[sp] && rate[sp].length >= 3 ? median(rate[sp]) : EST_DEFAULT[sp] ?? EST_DEFAULT.other;
       return { ...a, reEst: Math.round(r * a.min) };
     });
   };
-  E.dailyLoads = function (acts) { const m = {}; for (const a of E.withLoadEstimates(acts)) { const d = a.date; m[d] = (m[d] || 0) + (a.re || a.reEst || 0); } return m; };
+  E.loadOf = a => a.pwLoad ?? (a.re || a.reEst || 0);
+  E.dailyLoads = function (acts, pw) { const m = {}; for (const a of E.withLoadEstimates(acts, pw)) { const d = a.date; m[d] = (m[d] || 0) + E.loadOf(a); } return m; };
   // Seeded walk: from seed {asOf, ctl, atl} (values at end of asOf) through endDate
   E.pmc = function (loads, startDate, endDate, seed) {
     let ctl = seed ? seed.ctl : 0, atl = seed ? seed.atl : 0; const out = [];
@@ -201,11 +221,8 @@
     for (const b of E.bigEffort(acts, date)) f.push({ tone: "warn", text: `Day after a big effort (${b}): cap today at 30 min of Zone 1.` });
     for (const r of E.racesSoon(ctx.races, date)) f.push({ tone: "info", text: `${r.name} is ${r.days === 0 ? "today" : r.days === 1 ? "tomorrow" : "in " + r.days + " days"} (${r.date.slice(5).replace("-", "/")}). Taper around it.` });
     for (const x of E.fatigueScreen(acts, date)) f.push({ tone: "warn", text: `Fatigue carryover check: ${x.name} (${x.date.slice(5).replace("-", "/")}) was ${x.why}. Downgrade today's quality ${x.sport} session if it confirms.` });
-    const estActs = E.withLoadEstimates(acts);
-    const sumRE = (a, b) => estActs.filter(x => x.date > a && x.date <= b).reduce((s, x) => s + (x.re || x.reEst || 0), 0);
+    // Load spikes come from Garmin's acute/chronic load ratio (runner and Today page), not a separate calculation here
     const y = E.addDays(date, -1);
-    const acute = sumRE(E.addDays(y, -7), y), chronic = sumRE(E.addDays(y, -28), y) / 4;
-    if (chronic > 50 && acute / chronic > 1.5) f.push({ tone: "warn", text: `Load spike: last 7 days ${acute} RE vs ${Math.round(chronic)} weekly average (ratio ${(acute / chronic).toFixed(2)}, above 1.5).` });
     const runMi = (a, b) => acts.filter(x => E.sportOf(x.type) === "run" && x.date > a && x.date <= b).reduce((s, x) => s + (x.km || 0), 0) / 1.609;
     const thisW = runMi(E.addDays(y, -7), y), prev3 = (runMi(E.addDays(y, -28), E.addDays(y, -7))) / 3;
     if (prev3 > 2 && thisW - prev3 > 2 && thisW / prev3 > 1.3) f.push({ tone: "warn", text: `Run mileage up ${Math.round((thisW / prev3 - 1) * 100)}% (${thisW.toFixed(1)} mi vs ${prev3.toFixed(1)} mi weekly average). Running carries the most injury risk.` });
