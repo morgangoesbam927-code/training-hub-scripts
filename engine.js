@@ -175,6 +175,21 @@
     { key: "neutral", label: "Neutral", range: "−17 to −7" },
     { key: "building", label: "Building", range: "−27 to −17" },
     { key: "risk", label: "High risk", range: "below −27" }];
+  // Week-type targets (Form = TSB; ramp = fitness change per week) and the goal race, shared with the hub page
+  E.PHASE_TARGET = {
+    Base: { form: [-20, -10], ramp: [2, 4] }, Build: { form: [-25, -15], ramp: [3, 5] }, Peak: { form: [-20, -10], ramp: [-1, 1] },
+    Taper: { form: [0, 15], ramp: [-4, 0] }, Recovery: { form: [0, 10], ramp: [-3, 0] }, Maintenance: { form: [-15, 0], ramp: [-1, 2] } };
+  E.GOAL = { name: "Spring half marathon", date: "2027-05-08", fit: [65, 75] };
+  // Where fitness is headed vs the goal: fitness 65-75 when the 2-week taper starts, Form +5 to +15 on race day
+  E.fitnessPlan = function (hist) {
+    const last = hist && hist[hist.length - 1]; if (!last) return null;
+    const at = d => (hist.find(h => h.date === d) || {}).ctl, d0 = last.date, now = last.ctl;
+    const wk = at(E.addDays(d0, -7)), m4 = at(E.addDays(d0, -28)), taper = E.addDays(E.GOAL.date, -14);
+    const wks = Math.max(0.5, (new Date(taper) - new Date(d0)) / 6048e5), avg = m4 != null ? (now - m4) / 4 : null, proj = avg != null ? now + avg * wks : null;
+    const status = avg != null && avg > 7 ? "tooFast" : proj == null ? "unknown" : proj < E.GOAL.fit[0] ? "behind" : proj > E.GOAL.fit[1] + 5 ? "ahead" : "onTrack";
+    return { goal: E.GOAL, taperStarts: taper, asOf: d0, fitness: now, form: last.tsb, ramp7: wk != null ? r1(now - wk) : null, ramp4wkAvg: avg != null ? r1(avg) : null,
+      weeksToTaper: r1(wks), neededRampPerWeek: E.GOAL.fit.map(v => r1((v - now) / wks)), projectedAtTaper: proj != null ? r1(proj) : null, status, phaseTargets: E.PHASE_TARGET };
+  };
   E.formBand = tsb => tsb > 6 ? { key: "veryfresh", label: "Very fresh", tone: "info", note: "Well rested, close to tapered. Good for a race or key session; fitness fades if it lasts weeks." }
     : tsb >= -7 ? { key: "fresh", label: "Fresh", tone: "good", note: "Recovered. Normal training, including hard sessions, is fine." }
     : tsb >= -17 ? { key: "neutral", label: "Neutral", tone: "good", note: "Carrying normal training fatigue. Keep easy days easy." }

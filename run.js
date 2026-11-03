@@ -102,7 +102,7 @@ if (mode === "weekly") {
   const zm = Object.fromEntries(readColl("zonemix").map(z => [String(z.id), z]));
   const mix = E.intensityMix(wkActs.map(a => zm[a.id]));
   const intensityMix = mix ? { ...mix, coveredSessions: mix.sessions, enduranceSessions: wkActs.length } : { note: "No heart-rate zone data cached for this week" };
-  const res = { zones, intensityMix, sweat, thisWeek: mon, nextWeek: nextMon, nextDates: [...Array(7)].map((_, i) => E.addDays(nextMon, i)), compliance, table, last5Weeks: weekly, form: pmc && pmc.history[pmc.history.length - 1], flags,
+  const res = { zones, intensityMix, sweat, thisWeek: mon, nextWeek: nextMon, nextDates: [...Array(7)].map((_, i) => E.addDays(nextMon, i)), compliance, table, last5Weeks: weekly, form: pmc && pmc.history[pmc.history.length - 1], fitnessPlan: pmc ? E.fitnessPlan(pmc.history) : null, flags,
     lastSwimM: lastSwim ? Math.round(lastSwim.km * 1000) : null, longestRunMi: lastLong ? +(lastLong.km / 1.609).toFixed(1) : null, weight, journal, standingNotes: notes.map(n => n.text), goals, races,
     lastWeekPlan: (wk.workouts || []).map(x => ({ sport: x.sport, title: x.title, minutes: x.minutes })) };
   if (pmc) w("pmc.json", pmc);
